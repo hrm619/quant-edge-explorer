@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quant-edge-explorer"
+version = "0.1.0"
+description = "Conversational research agent for the quant-edge platform"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.88.0",
+    "fantasy-data",
+    "knowledge-base",
+    "plotly>=5.18.0",
+    "kaleido>=0.2.1",
+    "pandas>=2.1.0",
+    "tabulate>=0.9.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "scipy>=1.11.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "ruff"]
+
+[project.scripts]
+explore = "explorer.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/explorer"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.uv.sources]
+fantasy-data = { path = "../fantasy-data", editable = true }
+knowledge-base = { path = "../knowledge-base", editable = true }

@@ -1,0 +1,30 @@
+# config/priors.yaml — v1, needs refinement
+version: 1
+
+market_structure:
+  - Sharp consensus (Barrett, JJ, Winks, PFF) is a better true-value estimate than ADP
+  - ADP reflects casual market sentiment; divergence from sharp consensus is the primary edge signal
+  - Defense is underpriced relative to offense in market pricing
+
+player_evaluation:
+  - Conversion efficiency matters more than volume stats
+  - Trust weight below 0.7 means the baseline is unreliable — flag for manual review
+  - Coaching continuity (especially OC) determines how far back history is useful
+  - Rookies and new-system players warrant structural skepticism regardless of talent
+
+signal_hierarchy:
+  - Opportunity metrics (target share, snap share, air yards share) establish the floor
+  - Efficiency metrics (YPRR, CROE, separation) identify upside
+  - Scheme context (play-action %, screen %, created reception %) indicates production portability
+  - PFF grades are trusted but must be read alongside volume context
+
+red_flags:
+  - High volume + low efficiency → regression candidate
+  - Production heavily tied to play-action or screens → scheme dependent
+  - Low trust weight + high ADP → market pricing in continuity that may not exist
+  - High cross-source std dev → contested evaluation, investigate further
+
+thresholds:
+  trust_weight_reliable: 0.70
+  adp_divergence_significant: 12
+  rankings_variance_contested: 8.0

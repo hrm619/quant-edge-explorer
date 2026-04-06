@@ -1,0 +1,9 @@
+# Canonical Chart Registry — maps hand-crafted chart functions in fantasy-data
+# to named tools the explorer agent can invoke.
+#
+# Promotion to canonical is an explicit decision made after validating a chart
+# in real research sessions. Start empty, add entries as charts prove useful.
+
+version: 1
+
+charts: {}
