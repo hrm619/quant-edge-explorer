@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: theme("colors.surface.border");
+  }
+
+  body {
+    @apply bg-white text-neutral-900 font-sans text-base;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}

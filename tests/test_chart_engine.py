@@ -1,10 +1,12 @@
 """Tests for chart engine — verify chart types, canonical dispatch, and theming."""
 
+import json
+
 import plotly.graph_objects as go
 import pytest
 
 from explorer.canonical_charts import CanonicalChart
-from explorer.chart_engine import render_chart
+from explorer.chart_engine import ChartSpec, build_chart_spec, render_chart
 
 
 class TestAdhocCharts:
@@ -432,3 +434,74 @@ class TestToolSchema:
         assert props["reference_lines"]["type"] == "array"
         assert props["annotations"]["type"] == "array"
         assert props["takeaways"]["type"] == "array"
+
+
+class TestBuildChartSpec:
+    def test_returns_chart_spec_dataclass(self):
+        result = build_chart_spec({
+            "chart_type": "scatter",
+            "data": [{"x": 1, "y": 2}],
+            "title": "Test",
+            "x_field": "x",
+            "y_field": "y",
+        })
+        assert isinstance(result, ChartSpec)
+        assert result.title == "Test"
+        assert isinstance(result.figure, dict)
+        assert "data" in result.figure
+
+    def test_spec_is_json_serializable(self):
+        result = build_chart_spec({
+            "chart_type": "bar_horizontal",
+            "data": [{"label": "A", "value": 10}],
+            "title": "JSON Test",
+        })
+        # Must not raise
+        serialized = json.dumps(result.figure)
+        assert len(serialized) > 0
+
+    def test_spec_contains_plotly_traces(self):
+        result = build_chart_spec({
+            "chart_type": "scatter",
+            "data": [
+                {"player": "A", "x": 1, "y": 2, "pos": "WR"},
+                {"player": "B", "x": 3, "y": 4, "pos": "RB"},
+            ],
+            "title": "Trace Test",
+            "x_field": "x",
+            "y_field": "y",
+            "color_field": "pos",
+        })
+        assert len(result.figure["data"]) >= 2
+
+    def test_spec_preserves_takeaways(self):
+        result = build_chart_spec({
+            "chart_type": "scatter",
+            "data": [{"x": 1, "y": 2}],
+            "title": "Takeaway Test",
+            "x_field": "x",
+            "y_field": "y",
+            "takeaways": ["Point one", "Point two"],
+        })
+        assert result.takeaways == ["Point one", "Point two"]
+
+    def test_canonical_spec(self):
+        def mock_fn(season=2025):
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[1], y=[2], name="test"))
+            return fig
+
+        registry = {
+            "test_chart": CanonicalChart(
+                name="test_chart",
+                description="Test",
+                function=mock_fn,
+                parameters={"season": {"type": "int", "required": True, "description": "Season"}},
+            ),
+        }
+        result = build_chart_spec(
+            {"mode": "canonical", "chart_name": "test_chart", "parameters": {"season": 2025}, "title": "Canon"},
+            registry=registry,
+        )
+        assert result.title == "Canon"
+        assert len(result.figure["data"]) == 1

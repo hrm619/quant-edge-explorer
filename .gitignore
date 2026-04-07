@@ -10,3 +10,5 @@ charts/*.html
 charts/*.png
 .DS_Store
 uv.lock
+app/node_modules/
+app/dist/

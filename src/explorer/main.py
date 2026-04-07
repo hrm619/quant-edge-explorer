@@ -9,14 +9,12 @@ import anthropic
 from dotenv import load_dotenv
 
 from explorer import cli_render
+from explorer.agent import AgentConfig, run_agent_turn
 from explorer.canonical_charts import load_registry
 from explorer.connections import init_connections
-from explorer.system_prompt import build_planning_prompt, build_system_prompt
-from explorer.tool_handlers import dispatch_tool
+from explorer.system_prompt import build_system_prompt
 from explorer.tools import build_tools
 
-MODEL = "claude-sonnet-4-20250514"
-MAX_TOKENS = 4096
 CHARTS_DIR = Path(__file__).resolve().parent.parent.parent / "charts"
 REGISTRY_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "chart_registry.yaml"
 
@@ -67,101 +65,35 @@ def main():
         messages.append({"role": "user", "content": user_input})
 
         try:
-            response = _run_agent_loop(
+            turn = run_agent_turn(
                 client=client,
                 system_prompt=system_prompt,
                 messages=messages,
                 connections=connections,
                 tools=tools,
                 chart_registry=chart_registry,
+                charts_dir=CHARTS_DIR,
+                on_plan=cli_render.print_plan,
+                on_tool_start=_on_tool_start,
+                on_tool_end=_on_tool_end,
             )
-            _print_response(response)
+            _print_response(turn.response_text)
         except anthropic.APIError as e:
             cli_render.print_error(f"API error: {e}")
             messages.pop()
 
 
-def _run_agent_loop(
-    client: anthropic.Anthropic,
-    system_prompt: str,
-    messages: list[dict],
-    connections,
-    tools: list[dict],
-    chart_registry: dict | None = None,
-) -> anthropic.types.Message:
-    """Run the two-phase agent loop: plan first, then execute with tools."""
-
-    # --- Phase 1: Planning (no tools — forces structured reasoning) ---
-    planning_prompt = build_planning_prompt(system_prompt)
-
-    plan_response = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=planning_prompt,
-        messages=messages,
+def _on_tool_start(tool_id: str, tool_name: str, tool_input: dict) -> None:
+    """Display a compact tool call header."""
+    description = tool_input.get(
+        "description",
+        tool_input.get("query", tool_input.get("title", "")),
     )
-
-    plan_text = ""
-    for block in plan_response.content:
-        if hasattr(block, "text"):
-            plan_text += block.text
-
-    cli_render.print_plan(plan_text)
-
-    messages.append({"role": "assistant", "content": plan_response.content})
-    messages.append({
-        "role": "user",
-        "content": "Proceed with the research plan. Execute your queries and analysis now.",
-    })
-
-    # --- Phase 2: Execution (with tools) ---
-    while True:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=system_prompt,
-            messages=messages,
-            tools=tools,
-        )
-
-        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-
-        if not tool_use_blocks:
-            messages.append({"role": "assistant", "content": response.content})
-            return response
-
-        messages.append({"role": "assistant", "content": response.content})
-
-        tool_results = []
-        for block in tool_use_blocks:
-            description = block.input.get(
-                "description",
-                block.input.get("query", block.input.get("title", "")),
-            )
-            cli_render.print_tool_call(block.name, description)
-
-            result = dispatch_tool(
-                tool_name=block.name,
-                tool_input=block.input,
-                connections=connections,
-                charts_dir=CHARTS_DIR,
-                chart_registry=chart_registry,
-            )
-
-            # Show compact result summary to user
-            _display_tool_result(block.name, result)
-
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": block.id,
-                "content": result,
-            })
-
-        messages.append({"role": "user", "content": tool_results})
+    cli_render.print_tool_call(tool_name, description)
 
 
-def _display_tool_result(tool_name: str, result_json: str) -> None:
-    """Show a compact summary of a tool result to the user."""
+def _on_tool_end(tool_id: str, tool_name: str, result_json: str, duration_ms: int) -> None:
+    """Display a compact tool result summary."""
     try:
         result = json.loads(result_json)
     except (json.JSONDecodeError, TypeError):
@@ -179,11 +111,10 @@ def _display_tool_result(tool_name: str, result_json: str) -> None:
         cli_render.print_chart_result(result)
 
 
-def _print_response(response: anthropic.types.Message) -> None:
-    """Render text blocks from the response as Rich Markdown."""
-    for block in response.content:
-        if hasattr(block, "text"):
-            cli_render.print_response(block.text)
+def _print_response(text: str) -> None:
+    """Render the final response as Rich Markdown."""
+    if text:
+        cli_render.print_response(text)
 
 
 if __name__ == "__main__":

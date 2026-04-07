@@ -19,16 +19,22 @@ dependencies = [
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "scipy>=1.11.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "httpx>=0.28.0",
+    "sse-starlette>=2.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0.0", "ruff"]
+dev = ["pytest>=7.0.0", "pytest-asyncio>=0.24.0", "ruff"]
 
 [project.scripts]
 explore = "explorer.main:main"
+quant-edge = "server.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/explorer"]
+packages = ["src/explorer", "src/server"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

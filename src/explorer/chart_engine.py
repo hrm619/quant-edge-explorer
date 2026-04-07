@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html as html_lib
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -16,6 +17,15 @@ from fantasy_data.viz.theme import (
     format_axis,
 )
 from explorer.canonical_charts import CanonicalChart
+
+
+@dataclass
+class ChartSpec:
+    """A built chart ready for rendering — contains the Plotly JSON spec."""
+
+    figure: dict  # fig.to_dict() — JSON-serializable Plotly spec
+    title: str
+    takeaways: list[str] = field(default_factory=list)
 
 # ---------------------------------------------------------------------------
 # Distinct series palette — used when group_field values aren't positions.
@@ -35,6 +45,22 @@ _SERIES_PALETTE = [
 ]
 
 
+def build_chart_spec(
+    spec: dict,
+    registry: dict[str, CanonicalChart] | None = None,
+) -> ChartSpec:
+    """Build a Plotly figure and return its JSON spec. No file I/O.
+
+    This is the pure-logic entry point for the server (which sends the
+    spec over SSE) and for render_chart (which writes HTML to disk).
+    """
+    mode = spec.get("mode", "adhoc")
+
+    if mode == "canonical":
+        return _build_canonical_spec(spec, registry or {})
+    return _build_adhoc_spec(spec)
+
+
 def render_chart(
     spec: dict,
     charts_dir: Path,
@@ -46,13 +72,21 @@ def render_chart(
     registered function is called directly.  Otherwise falls back to
     adhoc chart building.
 
-    Returns dict with 'path' and 'title'.
+    Returns dict with 'path', 'title', and 'spec' (Plotly JSON dict).
     """
-    mode = spec.get("mode", "adhoc")
+    chart_spec = build_chart_spec(spec, registry)
+    fig = go.Figure(chart_spec.figure)
 
-    if mode == "canonical":
-        return _render_canonical(spec, charts_dir, registry or {})
-    return _render_adhoc(spec, charts_dir)
+    filename = spec.get("filename") or _slugify(chart_spec.title)
+    path = charts_dir / f"{filename}.html"
+    charts_dir.mkdir(parents=True, exist_ok=True)
+
+    if chart_spec.takeaways:
+        _write_html_with_takeaways(fig, path, chart_spec.takeaways, chart_spec.title)
+    else:
+        fig.write_html(str(path), include_plotlyjs="cdn")
+
+    return {"path": str(path), "title": chart_spec.title}
 
 
 # ---------------------------------------------------------------------------
@@ -60,9 +94,9 @@ def render_chart(
 # ---------------------------------------------------------------------------
 
 
-def _render_canonical(
-    spec: dict, charts_dir: Path, registry: dict[str, CanonicalChart]
-) -> dict:
+def _build_canonical_spec(
+    spec: dict, registry: dict[str, CanonicalChart]
+) -> ChartSpec:
     chart_name = spec.get("chart_name")
     if not chart_name or chart_name not in registry:
         available = ", ".join(registry.keys()) or "(none)"
@@ -89,11 +123,7 @@ def _render_canonical(
     fig = chart.function(**call_params)
     title = spec.get("title", chart_name.replace("_", " ").title())
 
-    filename = spec.get("filename") or _slugify(title)
-    path = charts_dir / f"{filename}.html"
-    fig.write_html(str(path), include_plotlyjs="cdn")
-
-    return {"path": str(path), "title": title}
+    return ChartSpec(figure=fig.to_dict(), title=title)
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +131,7 @@ def _render_canonical(
 # ---------------------------------------------------------------------------
 
 
-def _render_adhoc(spec: dict, charts_dir: Path) -> dict:
+def _build_adhoc_spec(spec: dict) -> ChartSpec:
     chart_type = spec["chart_type"]
     data = spec["data"]
     title = spec["title"]
@@ -150,15 +180,7 @@ def _render_adhoc(spec: dict, charts_dir: Path) -> dict:
             ),
         )
 
-    filename = spec.get("filename") or _slugify(title)
-    path = charts_dir / f"{filename}.html"
-
-    if takeaways:
-        _write_html_with_takeaways(fig, path, takeaways, title)
-    else:
-        fig.write_html(str(path), include_plotlyjs="cdn")
-
-    return {"path": str(path), "title": title}
+    return ChartSpec(figure=fig.to_dict(), title=title, takeaways=takeaways)
 
 
 # ---------------------------------------------------------------------------
