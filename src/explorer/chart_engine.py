@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import re
 from pathlib import Path
 
@@ -15,6 +16,23 @@ from fantasy_data.viz.theme import (
     format_axis,
 )
 from explorer.canonical_charts import CanonicalChart
+
+# ---------------------------------------------------------------------------
+# Distinct series palette — used when group_field values aren't positions.
+# More saturated and spread across hue than the NYT categorical palette so
+# that two arbitrary player names are never the same color.
+# ---------------------------------------------------------------------------
+
+_SERIES_PALETTE = [
+    "#4A7C98",  # steel blue
+    "#C4756B",  # brick
+    "#7A9B76",  # sage
+    "#B89968",  # ochre
+    "#8B6DAE",  # muted purple
+    "#D4915E",  # amber
+    "#5BA0A0",  # teal
+    "#C47A9B",  # rose
+]
 
 
 def render_chart(
@@ -89,6 +107,7 @@ def _render_adhoc(spec: dict, charts_dir: Path) -> dict:
     title = spec["title"]
     subtitle = spec.get("subtitle")
     source = spec.get("source")
+    takeaways = spec.get("takeaways", [])
 
     builders = {
         "scatter": _build_scatter,
@@ -112,11 +131,135 @@ def _render_adhoc(spec: dict, charts_dir: Path) -> dict:
     # Apply the NYT theme with full title block
     apply_theme(fig, title=title, subtitle=subtitle, source=source)
 
+    # Force legend on AFTER apply_theme (which defaults showlegend=False)
+    named_traces = [t for t in fig.data if t.name]
+    if len(named_traces) >= 2:
+        fig.update_layout(
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.15,
+                xanchor="left",
+                x=0,
+                font=dict(
+                    family="Inter, sans-serif",
+                    size=11,
+                    color=COLORS["text_secondary"],
+                ),
+            ),
+        )
+
     filename = spec.get("filename") or _slugify(title)
     path = charts_dir / f"{filename}.html"
-    fig.write_html(str(path), include_plotlyjs="cdn")
+
+    if takeaways:
+        _write_html_with_takeaways(fig, path, takeaways, title)
+    else:
+        fig.write_html(str(path), include_plotlyjs="cdn")
 
     return {"path": str(path), "title": title}
+
+
+# ---------------------------------------------------------------------------
+# Takeaways panel — renders chart + qualitative summary side by side
+# ---------------------------------------------------------------------------
+
+
+def _write_html_with_takeaways(
+    fig: go.Figure, path: Path, takeaways: list[str], title: str
+) -> None:
+    """Write an HTML file with the chart on the left and takeaways on the right."""
+    chart_html = fig.to_html(include_plotlyjs="cdn", full_html=False)
+
+    escaped_takeaways = [html_lib.escape(t) for t in takeaways]
+    takeaway_items = "\n".join(
+        f'            <li style="margin-bottom: 10px; line-height: 1.5;">{t}</li>'
+        for t in escaped_takeaways
+    )
+
+    full_html = f"""\
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: Inter, sans-serif; background: #FFFFFF; color: #1A1A1A; }}
+        .container {{
+            display: flex;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+            gap: 32px;
+            align-items: flex-start;
+        }}
+        .chart-panel {{
+            flex: 3;
+            min-width: 0;
+            overflow: hidden;
+        }}
+        .chart-panel .plotly-graph-div {{
+            height: 560px !important;
+            width: 100% !important;
+        }}
+        .takeaways-panel {{
+            flex: 0 0 300px;
+            padding-top: 60px;
+        }}
+        .takeaways-panel h3 {{
+            font-size: 13px;
+            font-weight: 600;
+            color: #555555;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #EEEEEE;
+        }}
+        .takeaways-panel ul {{
+            list-style: none;
+            padding: 0;
+        }}
+        .takeaways-panel li {{
+            font-size: 13px;
+            color: #333333;
+            padding-left: 16px;
+            position: relative;
+        }}
+        .takeaways-panel li::before {{
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 8px;
+            width: 6px;
+            height: 6px;
+            background: #4A7C98;
+            border-radius: 50%;
+        }}
+        @media (max-width: 900px) {{
+            .container {{ flex-direction: column; }}
+            .takeaways-panel {{ flex: none; padding-top: 0; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="chart-panel">
+            {chart_html}
+        </div>
+        <div class="takeaways-panel">
+            <h3>Key Takeaways</h3>
+            <ul>
+{takeaway_items}
+            </ul>
+        </div>
+    </div>
+</body>
+</html>"""
+
+    path.write_text(full_html)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +313,7 @@ def _apply_annotations(fig: go.Figure, annotations: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Position color mapping (adhoc)
+# Color helpers
 # ---------------------------------------------------------------------------
 
 # Map standard position names to categorical colors
@@ -178,6 +321,18 @@ _POS_COLORS = dict(zip(
     ["QB", "RB", "WR", "TE"],
     color_for_mode("categorical", n=4),
 ))
+
+
+def _color_for_group(group_name: str, group_index: int) -> str:
+    """Return a color for a named group.
+
+    Position names get their canonical colors.  Everything else cycles
+    through the series palette so that distinct groups are always
+    visually distinguishable.
+    """
+    if group_name in _POS_COLORS:
+        return _POS_COLORS[group_name]
+    return _SERIES_PALETTE[group_index % len(_SERIES_PALETTE)]
 
 
 def _resolve_color(row: dict, color_field: str | None, color_mode: str = "default") -> str:
@@ -222,8 +377,8 @@ def _build_scatter(data: list[dict], spec: dict) -> go.Figure:
             key = str(row.get(color_field, "Other"))
             groups.setdefault(key, []).append(row)
 
-        for group_name, rows in groups.items():
-            color = _POS_COLORS.get(group_name, bg_color)
+        for idx, (group_name, rows) in enumerate(groups.items()):
+            color = _color_for_group(group_name, idx)
             fig.add_trace(go.Scatter(
                 x=[r.get(x_field) for r in rows],
                 y=[r.get(y_field) for r in rows],
@@ -333,8 +488,13 @@ def _build_bar_horizontal(data: list[dict], spec: dict) -> go.Figure:
                 colors.append(neg)
             else:
                 colors.append(mid)
+    elif color_field:
+        # Build a group→color map for consistent assignment
+        unique_groups = list(dict.fromkeys(str(r.get(color_field, "")) for r in sorted_data))
+        group_color_map = {g: _color_for_group(g, i) for i, g in enumerate(unique_groups)}
+        colors = [group_color_map[str(r.get(color_field, ""))] for r in sorted_data]
     else:
-        colors = [_resolve_color(r, color_field, color_mode) for r in sorted_data]
+        colors = [COLORS["data_default"]] * len(sorted_data)
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -365,8 +525,8 @@ def _build_distribution(data: list[dict], spec: dict) -> go.Figure:
             key = str(row.get(group_field, "All"))
             groups.setdefault(key, []).append(row.get(metric_field))
 
-        for group_name, values in groups.items():
-            color = _POS_COLORS.get(group_name, COLORS["data_default"])
+        for idx, (group_name, values) in enumerate(groups.items()):
+            color = _color_for_group(group_name, idx)
             fig.add_trace(go.Box(
                 y=values,
                 name=group_name,
@@ -452,7 +612,7 @@ def _build_time_series(data: list[dict], spec: dict) -> go.Figure:
             key = str(row.get(group_field, "All"))
             groups.setdefault(key, []).append(row)
 
-        for group_name, rows in groups.items():
+        for idx, (group_name, rows) in enumerate(groups.items()):
             sorted_rows = sorted(rows, key=lambda r: r.get(x_field, 0))
 
             # Spotlight mode: highlighted series are bold, others are faded gray
@@ -462,7 +622,7 @@ def _build_time_series(data: list[dict], spec: dict) -> go.Figure:
                 width = 3 if is_hl else 1.5
                 opacity = 1.0 if is_hl else 0.4
             else:
-                color = _POS_COLORS.get(group_name, bg_color)
+                color = _color_for_group(group_name, idx)
                 width = 3 if group_name in highlight else 2
                 opacity = 1.0
 

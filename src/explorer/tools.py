@@ -200,6 +200,18 @@ def _build_generate_chart_tool(registry: dict[str, CanonicalChart] | None = None
                         "required": ["x", "y", "text"],
                     },
                 },
+                "takeaways": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Key qualitative takeaways displayed in a panel alongside the chart. "
+                        "3-5 short bullet points summarizing the analytical insight. "
+                        "Example: ['Waddle leads in target share every season since 2022', "
+                        "'Williams shows volatility — 2024 was an outlier year', "
+                        "'Both players face OC change risk in 2025']. "
+                        "Always include takeaways when the chart supports an analytical argument."
+                    ),
+                },
                 "filename": {
                     "type": "string",
                     "description": "Output filename (without extension). Defaults to auto-generated.",

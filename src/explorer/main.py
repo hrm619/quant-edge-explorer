@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from explorer.canonical_charts import load_registry
 from explorer.connections import init_connections
-from explorer.system_prompt import build_system_prompt
+from explorer.system_prompt import build_planning_prompt, build_system_prompt
 from explorer.tool_handlers import dispatch_tool
 from explorer.tools import build_tools
 
@@ -87,7 +87,32 @@ def _run_agent_loop(
     tools: list[dict],
     chart_registry: dict | None = None,
 ) -> anthropic.types.Message:
-    """Run the tool-use loop until the model produces a final text response."""
+    """Run the two-phase agent loop: plan first, then execute with tools."""
+
+    # --- Phase 1: Planning (no tools — forces structured reasoning) ---
+    planning_prompt = build_planning_prompt(system_prompt)
+
+    plan_response = client.messages.create(
+        model=MODEL,
+        max_tokens=1024,
+        system=planning_prompt,
+        messages=messages,
+    )
+
+    plan_text = ""
+    for block in plan_response.content:
+        if hasattr(block, "text"):
+            plan_text += block.text
+
+    print(f"\n   \U0001f4cb Research Plan:\n{_indent(plan_text)}\n")
+
+    messages.append({"role": "assistant", "content": plan_response.content})
+    messages.append({
+        "role": "user",
+        "content": "Proceed with the research plan. Execute your queries and analysis now.",
+    })
+
+    # --- Phase 2: Execution (with tools) ---
     while True:
         response = client.messages.create(
             model=MODEL,
@@ -97,15 +122,12 @@ def _run_agent_loop(
             tools=tools,
         )
 
-        # Check if response contains any tool use
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
 
         if not tool_use_blocks:
-            # Final response — add to history and return
             messages.append({"role": "assistant", "content": response.content})
             return response
 
-        # Process tool calls
         messages.append({"role": "assistant", "content": response.content})
 
         tool_results = []
@@ -127,6 +149,11 @@ def _run_agent_loop(
             })
 
         messages.append({"role": "user", "content": tool_results})
+
+
+def _indent(text: str, prefix: str = "      ") -> str:
+    """Indent each line of text for console display."""
+    return "\n".join(f"{prefix}{line}" for line in text.strip().split("\n"))
 
 
 def _print_response(response: anthropic.types.Message) -> None:

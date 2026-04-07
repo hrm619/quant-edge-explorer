@@ -60,6 +60,47 @@ class TestBuildSystemPrompt:
         assert "0.5" in prompt
 
 
+class TestAnalysisFramework:
+    def test_contains_analysis_framework(self):
+        prompt = build_system_prompt()
+        assert "Analysis Framework" in prompt
+
+    def test_contains_narrative_arc(self):
+        prompt = build_system_prompt()
+        assert "Lead with the verdict" in prompt
+        assert "Confront your priors" in prompt
+
+    def test_contains_editorial_voice(self):
+        prompt = build_system_prompt()
+        assert "Editorial Voice" in prompt
+        assert "Opinionated but honest" in prompt
+
+    def test_framework_before_behavior(self):
+        prompt = build_system_prompt()
+        framework_pos = prompt.index("Analysis Framework")
+        behavior_pos = prompt.index("Editorial Voice")
+        assert framework_pos < behavior_pos
+
+    def test_calibrating_depth(self):
+        prompt = build_system_prompt()
+        assert "Simple lookup" in prompt
+        assert "Open-ended analysis" in prompt
+
+
+class TestPlanningPrompt:
+    def test_planning_prompt_includes_addendum(self):
+        from explorer.system_prompt import build_planning_prompt
+        base = build_system_prompt()
+        planning = build_planning_prompt(base)
+        assert "PLANNING phase" in planning
+        assert "Thesis" in planning
+        assert planning.startswith(base)
+
+    def test_planning_addendum_not_in_base(self):
+        base = build_system_prompt()
+        assert "PLANNING phase" not in base
+
+
 class TestLoadPriors:
     def test_loads_yaml(self):
         priors = load_priors()

@@ -101,6 +101,100 @@ class TestAdhocCharts:
         assert (charts_dir / "ce_adhoc_bar.html").exists()
 
 
+class TestColorDifferentiation:
+    def test_non_position_groups_get_distinct_colors(self, charts_dir):
+        """Two player names grouped by color_field should NOT both be gray."""
+        from explorer.chart_engine import _color_for_group
+        color_a = _color_for_group("Jaylen Waddle", 0)
+        color_b = _color_for_group("Jameson Williams", 1)
+        assert color_a != color_b
+
+    def test_time_series_groups_get_distinct_colors(self, charts_dir):
+        """Time series with group_field should produce differently-colored traces."""
+        result = render_chart(
+            {
+                "chart_type": "time_series",
+                "data": [
+                    {"season": 2022, "value": 0.20, "player": "Waddle"},
+                    {"season": 2023, "value": 0.25, "player": "Waddle"},
+                    {"season": 2022, "value": 0.15, "player": "Williams"},
+                    {"season": 2023, "value": 0.18, "player": "Williams"},
+                ],
+                "title": "Volume Comparison",
+                "x_field": "season",
+                "y_field": "value",
+                "group_field": "player",
+                "filename": "ce_distinct_ts",
+            },
+            charts_dir,
+        )
+        assert (charts_dir / "ce_distinct_ts.html").exists()
+
+
+class TestLegend:
+    def test_multi_trace_gets_legend(self, charts_dir):
+        """Charts with 2+ named traces should show a legend."""
+        result = render_chart(
+            {
+                "chart_type": "scatter",
+                "data": [
+                    {"x": 1, "y": 2, "group": "A"},
+                    {"x": 3, "y": 4, "group": "B"},
+                ],
+                "title": "Legend Test",
+                "x_field": "x",
+                "y_field": "y",
+                "color_field": "group",
+                "filename": "ce_legend",
+            },
+            charts_dir,
+        )
+        assert (charts_dir / "ce_legend.html").exists()
+
+
+class TestTakeaways:
+    def test_takeaways_render_in_html(self, charts_dir):
+        result = render_chart(
+            {
+                "chart_type": "scatter",
+                "data": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+                "title": "Chart With Takeaways",
+                "x_field": "x",
+                "y_field": "y",
+                "takeaways": [
+                    "First insight about the data",
+                    "Second insight with context",
+                    "Third recommendation for next steps",
+                ],
+                "filename": "ce_takeaways",
+            },
+            charts_dir,
+        )
+        path = charts_dir / "ce_takeaways.html"
+        assert path.exists()
+        html_content = path.read_text()
+        assert "Key Takeaways" in html_content
+        assert "First insight about the data" in html_content
+        assert "Third recommendation for next steps" in html_content
+
+    def test_no_takeaways_produces_standard_html(self, charts_dir):
+        result = render_chart(
+            {
+                "chart_type": "scatter",
+                "data": [{"x": 1, "y": 2}],
+                "title": "No Takeaways",
+                "x_field": "x",
+                "y_field": "y",
+                "filename": "ce_no_takeaways",
+            },
+            charts_dir,
+        )
+        path = charts_dir / "ce_no_takeaways.html"
+        assert path.exists()
+        html_content = path.read_text()
+        assert "Key Takeaways" not in html_content
+
+
 class TestCanonicalCharts:
     def _make_registry(self):
         """Build a test registry with a mock chart function."""
@@ -334,5 +428,7 @@ class TestToolSchema:
         assert "source" in props
         assert "reference_lines" in props
         assert "annotations" in props
+        assert "takeaways" in props
         assert props["reference_lines"]["type"] == "array"
         assert props["annotations"]["type"] == "array"
+        assert props["takeaways"]["type"] == "array"
