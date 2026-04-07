@@ -18,7 +18,100 @@ _TIER_STYLE = {
 }
 
 MAX_TABLE_ROWS = 8
+MAX_TABLE_COLS = 6
 MAX_KB_TEXT_LEN = 150
+RESPONSE_WIDTH = 100
+
+# Column name abbreviations for fantasy-data fields
+_COLUMN_ABBREV = {
+    "full_name": "Player",
+    "player": "Player",
+    "position": "Pos",
+    "team": "Team",
+    "season": "Season",
+    "adp_positional_rank": "ADP Rank",
+    "adp_consensus": "ADP",
+    "sharp_consensus_rank": "Sharp Rank",
+    "sharp_pos_rank": "Sharp Pos",
+    "data_trust_weight": "Trust Wt",
+    "target_share": "Tgt Share",
+    "snap_share": "Snap %",
+    "air_yards_share": "AY Share",
+    "yards_per_route_run": "YPRR",
+    "catch_rate_over_expected": "CROE",
+    "yards_per_carry": "YPC",
+    "expected_yards_per_carry": "xYPC",
+    "rush_yards_over_expected": "RYOE",
+    "total_touches_per_game": "Touches/G",
+    "carries_per_game": "Carries/G",
+    "fpts_per_game_ppr": "FPTS/G",
+    "fpts_per_game_std": "FPTS/G Std",
+    "fantasy_pts_ppr": "FPTS PPR",
+    "fantasy_pts_std": "FPTS Std",
+    "pff_receiving_grade": "PFF Recv",
+    "pff_offense_grade": "PFF Off",
+    "pff_rush_grade": "PFF Rush",
+    "pff_passing_grade": "PFF Pass",
+    "hc_continuity": "HC Cont",
+    "oc_continuity": "OC Cont",
+    "seasons_in_system": "Sys Years",
+    "adp_divergence_pos": "ADP Div",
+    "adp_divergence_rank": "Div Rank",
+    "adp_divergence_flag": "Div Flag",
+    "projection_uncertain_flag": "Uncertain",
+    "rz_target_share": "RZ Tgt %",
+    "wopr": "WOPR",
+    "consistency_score": "Consistency",
+    "boom_rate": "Boom %",
+    "bust_rate": "Bust %",
+    "td_rate": "TD Rate",
+    "racr": "RACR",
+    "route_participation_rate": "Route Part",
+    "avg_depth_of_target": "aDOT",
+    "avg_separation": "Separation",
+    "avg_cushion": "Cushion",
+    "broken_tackle_rate": "Broken Tkl",
+    "drop_rate": "Drop %",
+    "rb_role": "RB Role",
+    "baseline_id": "ID",
+    "player_id": "Player ID",
+}
+
+
+def _col_label(col: str) -> str:
+    """Get display label for a column name."""
+    return _COLUMN_ABBREV.get(col, col.replace("_", " ").title())
+
+
+def _select_columns(columns: list[str], max_cols: int = MAX_TABLE_COLS) -> list[str]:
+    """Select the most useful columns when there are too many.
+
+    Always keeps the first column (player name) and prioritizes
+    columns with short abbreviated names.
+    """
+    if len(columns) <= max_cols:
+        return columns
+
+    # Always keep first column
+    selected = [columns[0]]
+    remaining = columns[1:]
+
+    # Score remaining by abbreviated name length (shorter = more likely useful)
+    # and prefer columns that appear in _COLUMN_ABBREV (domain-relevant)
+    scored = []
+    for col in remaining:
+        abbrev = _COLUMN_ABBREV.get(col)
+        if abbrev:
+            score = 0  # known columns get priority
+        else:
+            score = 1  # unknown columns ranked lower
+        scored.append((score, col))
+
+    scored.sort(key=lambda x: x[0])
+    selected.extend(col for _, col in scored[: max_cols - 1])
+
+    # Preserve original column order
+    return [c for c in columns if c in selected]
 
 
 def print_banner(sqlite_stats: str = "", chroma_stats: str = "") -> None:
@@ -66,10 +159,21 @@ def print_sql_result(result: dict) -> None:
     rows = result.get("rows", [])
     columns = result.get("columns", [])
     row_count = result.get("row_count", len(rows))
+    total_cols = len(columns)
 
     if not rows or not columns:
         console.print("  [dim]No rows returned[/dim]")
         return
+
+    # Select columns to display
+    visible_cols = _select_columns(columns)
+
+    # Detect numeric columns from first row
+    numeric_cols = set()
+    for col in visible_cols:
+        val = rows[0].get(col)
+        if isinstance(val, (int, float)):
+            numeric_cols.add(col)
 
     table = Table(
         show_header=True,
@@ -79,25 +183,19 @@ def print_sql_result(result: dict) -> None:
         pad_edge=True,
     )
 
-    # Detect numeric columns from first row
-    numeric_cols = set()
-    for col in columns:
-        val = rows[0].get(col)
-        if isinstance(val, (int, float)):
-            numeric_cols.add(col)
-
-    for col in columns:
+    for col in visible_cols:
         justify = "right" if col in numeric_cols else "left"
         table.add_column(
-            col.replace("_", " ").title(),
+            _col_label(col),
             justify=justify,
-            no_wrap=True,
+            min_width=6,
+            overflow="fold",
         )
 
     display_rows = rows[:MAX_TABLE_ROWS]
     for row in display_rows:
         cells = []
-        for col in columns:
+        for col in visible_cols:
             val = row.get(col)
             if val is None:
                 cells.append("[dim]—[/dim]")
@@ -113,6 +211,8 @@ def print_sql_result(result: dict) -> None:
     footer_parts = [f"{row_count} row{'s' if row_count != 1 else ''}"]
     if row_count > MAX_TABLE_ROWS:
         footer_parts.append(f"showing first {MAX_TABLE_ROWS}")
+    if total_cols > len(visible_cols):
+        footer_parts.append(f"{len(visible_cols)} of {total_cols} columns")
     if result.get("warning"):
         footer_parts.append(result["warning"])
     console.print(f"  [dim]{'  ·  '.join(footer_parts)}[/dim]")
@@ -149,7 +249,6 @@ def print_kb_result(result: dict) -> None:
             meta_parts.append(f"[dim]{source_type}[/dim]")
 
         console.print(f"  [dim]┃[/dim] {' · '.join(meta_parts)}")
-        # Indent and dim the text
         for line in _wrap_text(text, 70):
             console.print(f"  [dim]┃[/dim] [italic]{line}[/italic]")
         console.print(f"  [dim]┃[/dim]")
@@ -160,17 +259,28 @@ def print_kb_result(result: dict) -> None:
 def print_chart_result(result: dict) -> None:
     """Chart save confirmation with file path."""
     path = result.get("path", "")
-    title = result.get("title", "")
-    console.print(f"\n  [blue]📊[/blue] Chart saved → [link=file://{path}][blue underline]{path}[/blue underline][/link]")
+    console.print(
+        f"\n  [blue]📊[/blue] Chart saved → "
+        f"[link=file://{path}][blue underline]{path}[/blue underline][/link]"
+    )
 
 
 def print_response(text: str) -> None:
-    """Render model response as Rich Markdown."""
+    """Render model response as Rich Markdown in a padded panel."""
     console.print()
     console.rule(style="dim")
     console.print()
+
+    width = min(console.width, RESPONSE_WIDTH)
     md = Markdown(text)
-    console.print(md)
+    panel = Panel(
+        md,
+        border_style="dim",
+        padding=(1, 3),
+        width=width,
+    )
+    console.print(panel)
+
     console.print()
     console.rule(style="dim")
     console.print()

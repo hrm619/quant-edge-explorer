@@ -65,7 +65,25 @@ class TestSqlResult:
         }
         output = _capture(cli_render.print_sql_result, result)
         assert "Chase" in output
+        assert "Player" in output  # full_name → "Player" abbreviation
         assert "2 rows" in output
+
+    def test_abbreviates_column_names(self):
+        result = {
+            "columns": ["full_name", "yards_per_route_run", "data_trust_weight"],
+            "rows": [{"full_name": "Test", "yards_per_route_run": 2.1, "data_trust_weight": 0.75}],
+            "row_count": 1,
+        }
+        output = _capture(cli_render.print_sql_result, result)
+        assert "YPRR" in output
+        assert "Trust Wt" in output
+
+    def test_caps_columns_when_too_many(self):
+        cols = [f"col_{i}" for i in range(12)]
+        rows = [{c: i for i, c in enumerate(cols)}]
+        result = {"columns": cols, "rows": rows, "row_count": 1}
+        output = _capture(cli_render.print_sql_result, result)
+        assert "6 of 12 columns" in output
 
     def test_truncates_large_result(self):
         rows = [{"name": f"Player {i}", "value": i} for i in range(20)]
