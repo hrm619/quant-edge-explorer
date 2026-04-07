@@ -22,6 +22,8 @@ class Connections:
     chroma_client: chromadb.ClientAPI
     openai_client: openai.OpenAI
     collections: dict[str, chromadb.Collection]
+    sqlite_stats: str = ""
+    chroma_stats: str = ""
 
     def get_sqlite_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.sqlite_path)
@@ -62,7 +64,7 @@ def init_connections() -> Connections:
     for col in chroma_client.list_collections():
         collections[col.name] = col
 
-    # Print startup summary
+    # Gather stats for banner (caller handles display)
     conn = sqlite3.connect(sqlite_path)
     baseline_count = conn.execute(
         "SELECT count(*) FROM player_season_baseline"
@@ -70,13 +72,17 @@ def init_connections() -> Connections:
     player_count = conn.execute("SELECT count(*) FROM players").fetchone()[0]
     conn.close()
 
-    print(f"   SQLite: {player_count:,} players | {baseline_count:,} baselines")
-    for name, col in collections.items():
-        print(f"   ChromaDB: {name} — {col.count():,} chunks")
+    sqlite_stats = f"SQLite: {player_count:,} players | {baseline_count:,} baselines"
+    chroma_stats_parts = [
+        f"{name} — {col.count():,} chunks" for name, col in collections.items()
+    ]
+    chroma_stats = "ChromaDB: " + ", ".join(chroma_stats_parts) if chroma_stats_parts else ""
 
     return Connections(
         sqlite_path=sqlite_path,
         chroma_client=chroma_client,
         openai_client=openai_client,
         collections=collections,
+        sqlite_stats=sqlite_stats,
+        chroma_stats=chroma_stats,
     )

@@ -1,5 +1,6 @@
 """Entry point — interactive conversation loop with Anthropic tool-use API."""
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
+from explorer import cli_render
 from explorer.canonical_charts import load_registry
 from explorer.connections import init_connections
 from explorer.system_prompt import build_planning_prompt, build_system_prompt
@@ -24,26 +26,26 @@ def main():
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        print("Error: ANTHROPIC_API_KEY not set in environment or .env")
+        cli_render.print_error("ANTHROPIC_API_KEY not set in environment or .env")
         sys.exit(1)
-
-    print("\n\U0001f50d Quant-Edge Research Agent")
-    print("   Initializing connections...")
 
     try:
         connections = init_connections()
     except (FileNotFoundError, ValueError) as e:
-        print(f"Error: {e}")
+        cli_render.print_error(str(e))
         sys.exit(1)
 
     chart_registry = load_registry(REGISTRY_PATH) if REGISTRY_PATH.exists() else {}
     tools = build_tools(chart_registry)
 
+    cli_render.print_banner(
+        sqlite_stats=connections.sqlite_stats,
+        chroma_stats=connections.chroma_stats,
+    )
+
     system_prompt = build_system_prompt()
     client = anthropic.Anthropic(api_key=api_key)
     messages: list[dict] = []
-
-    print("   Type 'quit' to exit, 'reset' to clear history\n")
 
     while True:
         try:
@@ -59,7 +61,7 @@ def main():
             break
         if user_input.lower() == "reset":
             messages.clear()
-            print("Conversation history cleared.\n")
+            cli_render.print_reset()
             continue
 
         messages.append({"role": "user", "content": user_input})
@@ -75,7 +77,7 @@ def main():
             )
             _print_response(response)
         except anthropic.APIError as e:
-            print(f"\nAPI error: {e}\n")
+            cli_render.print_error(f"API error: {e}")
             messages.pop()
 
 
@@ -104,7 +106,7 @@ def _run_agent_loop(
         if hasattr(block, "text"):
             plan_text += block.text
 
-    print(f"\n   \U0001f4cb Research Plan:\n{_indent(plan_text)}\n")
+    cli_render.print_plan(plan_text)
 
     messages.append({"role": "assistant", "content": plan_response.content})
     messages.append({
@@ -132,7 +134,11 @@ def _run_agent_loop(
 
         tool_results = []
         for block in tool_use_blocks:
-            print(f"   \U0001f527 {block.name}: {block.input.get('description', block.input.get('query', block.input.get('title', '')))}")
+            description = block.input.get(
+                "description",
+                block.input.get("query", block.input.get("title", "")),
+            )
+            cli_render.print_tool_call(block.name, description)
 
             result = dispatch_tool(
                 tool_name=block.name,
@@ -141,6 +147,9 @@ def _run_agent_loop(
                 charts_dir=CHARTS_DIR,
                 chart_registry=chart_registry,
             )
+
+            # Show compact result summary to user
+            _display_tool_result(block.name, result)
 
             tool_results.append({
                 "type": "tool_result",
@@ -151,16 +160,30 @@ def _run_agent_loop(
         messages.append({"role": "user", "content": tool_results})
 
 
-def _indent(text: str, prefix: str = "      ") -> str:
-    """Indent each line of text for console display."""
-    return "\n".join(f"{prefix}{line}" for line in text.strip().split("\n"))
+def _display_tool_result(tool_name: str, result_json: str) -> None:
+    """Show a compact summary of a tool result to the user."""
+    try:
+        result = json.loads(result_json)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    if "error" in result:
+        cli_render.print_error(result["error"])
+        return
+
+    if tool_name == "query_sql" and "rows" in result:
+        cli_render.print_sql_result(result)
+    elif tool_name == "search_knowledge_base" and "results" in result:
+        cli_render.print_kb_result(result)
+    elif tool_name == "generate_chart" and "path" in result:
+        cli_render.print_chart_result(result)
 
 
 def _print_response(response: anthropic.types.Message) -> None:
-    """Print text blocks from the response."""
+    """Render text blocks from the response as Rich Markdown."""
     for block in response.content:
         if hasattr(block, "text"):
-            print(f"\n{block.text}\n")
+            cli_render.print_response(block.text)
 
 
 if __name__ == "__main__":
