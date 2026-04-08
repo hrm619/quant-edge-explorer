@@ -32,12 +32,12 @@ def create_conversation(
 
 @router.get("/conversations", response_model=list[ConversationSummary])
 def list_conversations(
+    conn: HistoryConn,
     archived: bool = False,
     starred: bool | None = None,
     q: str | None = None,
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
-    conn: HistoryConn,
 ):
     return repo.list_conversations(
         conn, archived=archived, starred=starred, q=q, limit=limit, offset=offset,

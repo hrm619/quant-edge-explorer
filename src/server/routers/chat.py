@@ -1,12 +1,12 @@
 """SSE streaming chat endpoint — bridges the sync agent loop to async SSE."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
 import sqlite3
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Annotated
 
 import anthropic
 from fastapi import APIRouter, Depends, Request
@@ -23,6 +23,10 @@ from server.config import Settings, get_settings
 from server.dependencies import get_connections, get_history_conn
 from server.schemas import ChatRequest
 from server.titles import generate_title
+
+ExplorerConns = Annotated[Connections, Depends(get_connections)]
+HistoryConn = Annotated[sqlite3.Connection, Depends(get_history_conn)]
+AppSettings = Annotated[Settings, Depends(get_settings)]
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +111,7 @@ async def _stream_agent_turn(
     connections: Connections,
     history_conn: sqlite3.Connection,
     settings: Settings,
-) -> asyncio.AsyncIterator[str]:
+) -> AsyncIterator[str]:
     """Run the agent loop in a thread pool and yield SSE events."""
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue[tuple[str, dict] | None] = asyncio.Queue()
@@ -278,14 +282,14 @@ async def _stream_agent_turn(
 
 @router.post("/api/v1/chat")
 async def chat(
-    request: ChatRequest,
-    connections: Connections = Depends(get_connections),
-    history_conn: sqlite3.Connection = Depends(get_history_conn),
-    settings: Settings = Depends(get_settings),
+    chat_request: ChatRequest,
+    connections: ExplorerConns,
+    history_conn: HistoryConn,
+    settings: AppSettings,
 ) -> StreamingResponse:
     """SSE endpoint for the two-phase agent loop."""
     return StreamingResponse(
-        _stream_agent_turn(request, connections, history_conn, settings),
+        _stream_agent_turn(chat_request, connections, history_conn, settings),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

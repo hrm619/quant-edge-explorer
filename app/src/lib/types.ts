@@ -59,7 +59,7 @@ export interface ArtifactDetail extends ArtifactSummary {
 
 export interface ConversationDetail extends ConversationSummary {
   messages: MessageResponse[];
-  artifacts: ArtifactSummary[];
+  artifacts: ArtifactDetail[];
   annotations: AnnotationResponse[];
 }
 

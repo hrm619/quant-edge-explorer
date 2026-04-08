@@ -79,7 +79,7 @@ class ArtifactDetail(ArtifactSummary):
 
 class ConversationDetail(ConversationSummary):
     messages: list[MessageResponse] = []
-    artifacts: list[ArtifactSummary] = []
+    artifacts: list[ArtifactDetail] = []
     annotations: list[AnnotationResponse] = []
 
 

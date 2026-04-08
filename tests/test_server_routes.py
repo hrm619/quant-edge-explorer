@@ -155,12 +155,16 @@ class TestConversations:
 
 
 class TestArtifacts:
+    _tc_counter = 0
+
     def _seed_artifact(self, history_conn, kind="table", title="Test artifact"):
+        TestArtifacts._tc_counter += 1
+        tc_id = f"tc-{TestArtifacts._tc_counter}"
         conv = repo.create_conversation(history_conn, title="Conv")
         msg = repo.add_message(history_conn, conv["id"], "assistant", "Results")
-        repo.add_tool_call(history_conn, msg["id"], "tc-1", "query_sql", {}, '{}')
+        repo.add_tool_call(history_conn, msg["id"], tc_id, "query_sql", {}, '{}')
         return repo.add_artifact(
-            history_conn, conv["id"], "tc-1", kind, title,
+            history_conn, conv["id"], tc_id, kind, title,
             {"columns": ["a"], "rows": [{"a": 1}]}, "test data",
         )
 

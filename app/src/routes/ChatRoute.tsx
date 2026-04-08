@@ -13,6 +13,7 @@ export function ChatRoute() {
   const navigate = useNavigate();
 
   const {
+    conversationId: activeConversationId,
     messages,
     artifacts,
     plan,
@@ -29,14 +30,18 @@ export function ChatRoute() {
 
   const { grouped, isLoading, refetch } = useConversationList();
 
-  // Load conversation when URL changes
+  // Load conversation when URL changes — but skip if we're already
+  // streaming this conversation (the navigate from onConversationCreated
+  // would otherwise clobber the in-progress stream).
   useEffect(() => {
     if (conversationId) {
-      loadConversation(conversationId);
+      if (conversationId !== activeConversationId || !isStreaming) {
+        loadConversation(conversationId);
+      }
     } else {
       newConversation();
     }
-  }, [conversationId, loadConversation, newConversation]);
+  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(
     (content: string) => {
